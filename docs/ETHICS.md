@@ -1,4 +1,4 @@
-# Ethical and Legal Analysis: Wikipedia Heritage Sites Scraping
+# Ethical and Legal Analysis
 
 ## Executive Summary
 
