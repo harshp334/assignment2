@@ -5,14 +5,26 @@ import re
 from urllib.parse import urljoin
 import time
 
+# Import the transformation pipeline from your transformers.py file
+from transformers import HeritageDataTransformationPipeline
+
 class HeritagesSiteScraper:
-    def __init__(self):
+    def __init__(self, enable_transformation=True):
         self.base_url = "https://en.wikipedia.org"
         self.heritage_sites = []
+        self.standardized_sites = []  # For transformed data
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
+        
+        # Initialize the transformation pipeline
+        self.enable_transformation = enable_transformation
+        if self.enable_transformation:
+            self.pipeline = HeritageDataTransformationPipeline()
+            print("✓ Data transformation pipeline initialized")
+        else:
+            self.pipeline = None
     
     def scrape_all_heritage_sites(self):
         """Scrape all heritage sites from the year-based listing page"""
@@ -28,7 +40,11 @@ class HeritagesSiteScraper:
             # Find all tables with heritage sites
             tables = soup.find_all('table', {'class': 'wikitable'})
             
-            for table in tables:
+            print(f"Found {len(tables)} tables to process...")
+            
+            for table_idx, table in enumerate(tables):
+                print(f"Processing table {table_idx + 1}/{len(tables)}")
+                
                 # Look for table headers to identify the structure
                 headers = table.find('tr')
                 if not headers:
@@ -67,40 +83,17 @@ class HeritagesSiteScraper:
                     
                     if len(cells) > max(name_idx, country_idx):
                         try:
-                            # Extract site name
-                            site_name = ""
-                            if name_idx < len(cells):
-                                site_name = cells[name_idx].get_text().strip()
-                                # Remove references and clean up
-                                site_name = re.sub(r'\[.*?\]', '', site_name)
-                                site_name = re.sub(r'\s+', ' ', site_name).strip()
+                            # Extract site data
+                            raw_site = self._extract_site_data(cells, name_idx, country_idx, criteria_idx, year_idx)
                             
-                            # Extract country/location
-                            country = ""
-                            if country_idx < len(cells):
-                                country = cells[country_idx].get_text().strip()
-                                country = re.sub(r'\[.*?\]', '', country)
-                                country = re.sub(r'\s+', ' ', country).strip()
-                            
-                            # Extract criteria
-                            criteria = "Unknown"
-                            if criteria_idx >= 0 and criteria_idx < len(cells):
-                                criteria = cells[criteria_idx].get_text().strip()
-                            
-                            # Extract year
-                            year = "Unknown"
-                            if year_idx >= 0 and year_idx < len(cells):
-                                year = cells[year_idx].get_text().strip()
-                            
-                            # Only add if we have a valid site name and country
-                            if site_name and len(site_name) > 3 and country and len(country) > 1:
-                                all_sites.append({
-                                    'name': site_name,
-                                    'country': country,
-                                    'location': country,
-                                    'year': year,
-                                    'criteria': criteria
-                                })
+                            if raw_site:
+                                all_sites.append(raw_site)
+                                
+                                # Apply transformation pipeline in real-time
+                                if self.enable_transformation:
+                                    standardized_site = self.pipeline.transform_single_site(raw_site)
+                                    if standardized_site:
+                                        self.standardized_sites.append(standardized_site)
                         
                         except (IndexError, AttributeError):
                             continue
@@ -124,14 +117,64 @@ class HeritagesSiteScraper:
                     if next_element and next_element.name == 'table':
                         # Process this table with the current year
                         table_sites = self.extract_sites_from_table(next_element, current_year)
-                        all_sites.extend(table_sites)
+                        for site in table_sites:
+                            all_sites.append(site)
+                            
+                            # Apply transformation pipeline
+                            if self.enable_transformation:
+                                standardized_site = self.pipeline.transform_single_site(site)
+                                if standardized_site:
+                                    self.standardized_sites.append(standardized_site)
             
-            print(f"Total heritage sites found: {len(all_sites)}")
+            print(f"✓ Total raw sites scraped: {len(all_sites)}")
+            if self.enable_transformation:
+                print(f"✓ Total sites transformed: {len(self.standardized_sites)}")
+                print(f"✓ Transformation success rate: {len(self.standardized_sites)/len(all_sites)*100:.1f}%")
+            
             return all_sites
             
         except requests.RequestException as e:
             print(f"Error fetching heritage sites: {e}")
             return []
+    
+    def _extract_site_data(self, cells, name_idx, country_idx, criteria_idx, year_idx):
+        """Extract site data from table cells"""
+        # Extract site name
+        site_name = ""
+        if name_idx < len(cells):
+            site_name = cells[name_idx].get_text().strip()
+            # Remove references and clean up
+            site_name = re.sub(r'\[.*?\]', '', site_name)
+            site_name = re.sub(r'\s+', ' ', site_name).strip()
+        
+        # Extract country/location
+        country = ""
+        if country_idx < len(cells):
+            country = cells[country_idx].get_text().strip()
+            country = re.sub(r'\[.*?\]', '', country)
+            country = re.sub(r'\s+', ' ', country).strip()
+        
+        # Extract criteria
+        criteria = "Unknown"
+        if criteria_idx >= 0 and criteria_idx < len(cells):
+            criteria = cells[criteria_idx].get_text().strip()
+        
+        # Extract year
+        year = "Unknown"
+        if year_idx >= 0 and year_idx < len(cells):
+            year = cells[year_idx].get_text().strip()
+        
+        # Only return if we have valid site name and country
+        if site_name and len(site_name) > 3 and country and len(country) > 1:
+            return {
+                'name': site_name,
+                'country': country,
+                'location': country,
+                'year': year,
+                'criteria': criteria
+            }
+        
+        return None
     
     def extract_sites_from_table(self, table, year=None):
         """Extract heritage sites from a specific table"""
@@ -208,12 +251,17 @@ class HeritagesSiteScraper:
             print("Could not load heritage sites data.")
             return []
         
+        # Use transformed data for searching if available
+        search_data = self.standardized_sites if self.standardized_sites else self.all_sites_cache
+        
         # Filter sites by country
         country_lower = country.lower()
         country_sites = []
         
-        for site in self.all_sites_cache:
-            site_country = site['country'].lower()
+        for site in search_data:
+            # Handle both raw and standardized site formats
+            site_country = site.country.lower() if hasattr(site, 'country') else site['country'].lower()
+            
             # Check if the country matches (exact or partial match)
             if (country_lower in site_country or 
                 site_country in country_lower or
@@ -224,8 +272,9 @@ class HeritagesSiteScraper:
             print(f"No heritage sites found for country: {country}")
             print("Available countries include:")
             countries = set()
-            for site in self.all_sites_cache[:50]:  # Show sample of countries
-                countries.add(site['country'])
+            for site in search_data[:50]:  # Show sample of countries
+                site_country = site.country if hasattr(site, 'country') else site['country']
+                countries.add(site_country)
             for c in sorted(countries):
                 print(f"  - {c}")
             return []
@@ -237,8 +286,15 @@ class HeritagesSiteScraper:
         matching_sites = []
         
         for site in country_sites:
-            # Search in name, location, and criteria
-            search_text = f"{site['name']} {site['location']} {site['criteria']}".lower()
+            # Handle both raw and standardized site formats
+            if hasattr(site, 'name'):  # Standardized site
+                search_text = f"{site.name} {site.location} {site.criteria_description}".lower()
+                # Also search in tags if available
+                if site.tags:
+                    search_text += " " + " ".join(site.tags)
+            else:  # Raw site
+                search_text = f"{site['name']} {site['location']} {site['criteria']}".lower()
+            
             if keyword_lower in search_text:
                 matching_sites.append(site)
         
@@ -247,7 +303,13 @@ class HeritagesSiteScraper:
             print(f"No exact matches for '{keyword}'. Trying broader search...")
             # Try partial word matches
             for site in country_sites:
-                search_text = f"{site['name']} {site['location']} {site['criteria']}".lower()
+                if hasattr(site, 'name'):  # Standardized site
+                    search_text = f"{site.name} {site.location} {site.criteria_description}".lower()
+                    if site.tags:
+                        search_text += " " + " ".join(site.tags)
+                else:  # Raw site
+                    search_text = f"{site['name']} {site['location']} {site['criteria']}".lower()
+                
                 if any(word in search_text for word in keyword_lower.split()):
                     matching_sites.append(site)
         
@@ -255,13 +317,32 @@ class HeritagesSiteScraper:
     
     def generate_itinerary(self, site, days):
         """Generate a travel itinerary for the selected heritage site"""
+        # Handle both raw and standardized site formats
+        if hasattr(site, 'name'):  # Standardized site
+            site_name = site.name
+            site_country = site.country
+            site_location = site.location
+        else:  # Raw site
+            site_name = site['name']
+            site_country = site['country']
+            site_location = site['location']
+        
         itinerary = {
-            "destination": site['name'],
-            "country": site['country'],
-            "location": site['location'],
+            "destination": site_name,
+            "country": site_country,
+            "location": site_location,
             "duration_days": days,
             "itinerary": []
         }
+        
+        # Add enriched information if using transformed data
+        if hasattr(site, 'continent') and site.continent:
+            itinerary["continent"] = site.continent
+            itinerary["region"] = site.region
+            itinerary["criteria_type"] = site.criteria_type.value
+            itinerary["inscription_year"] = site.inscription_year
+            itinerary["data_quality_score"] = site.data_quality_score
+            itinerary["tags"] = site.tags
         
         # Generate day-by-day itinerary
         for day in range(1, days + 1):
@@ -271,7 +352,7 @@ class HeritagesSiteScraper:
                     "title": f"Arrival and First Exploration",
                     "activities": [
                         "Arrive and check into accommodation",
-                        f"Initial visit to {site['name']}",
+                        f"Initial visit to {site_name}",
                         "Orientation and site overview",
                         "Local cuisine lunch",
                         "Evening rest and preparation"
@@ -282,7 +363,7 @@ class HeritagesSiteScraper:
                     "day": day,
                     "title": f"Final Exploration and Departure",
                     "activities": [
-                        f"Final visit to {site['name']}",
+                        f"Final visit to {site_name}",
                         "Purchase souvenirs and local crafts",
                         "Last-minute photography",
                         "Check out and prepare for departure",
@@ -292,21 +373,21 @@ class HeritagesSiteScraper:
             else:
                 activity_types = [
                     [
-                        f"In-depth exploration of {site['name']}",
+                        f"In-depth exploration of {site_name}",
                         "Guided tour of historical sections",
                         "Photography session",
                         "Local cultural activities",
                         "Traditional lunch"
                     ],
                     [
-                        f"Visit surrounding areas near {site['name']}",
+                        f"Visit surrounding areas near {site_name}",
                         "Explore local museums",
                         "Meet with local guides/historians",
                         "Cultural workshop or demonstration",
                         "Local market visit"
                     ],
                     [
-                        f"Adventure activities around {site['name']}",
+                        f"Adventure activities around {site_name}",
                         "Nature walks or hiking",
                         "Visit nearby attractions",
                         "Local transportation experience",
@@ -348,17 +429,55 @@ class HeritagesSiteScraper:
         
         try:
             with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(itinerary, f, indent=4, ensure_ascii=False)
+                json.dump(itinerary, f, indent=4, ensure_ascii=False, default=str)
             print(f"Itinerary saved to: {filename}")
             return filename
         except Exception as e:
             print(f"Error saving itinerary: {e}")
             return None
+    
+    def export_standardized_data(self, filename_base="heritage_sites_standardized"):
+        """Export the standardized/transformed data using the pipeline's export functionality"""
+        if not self.enable_transformation or not self.standardized_sites:
+            print("No standardized data available. Enable transformation or scrape data first.")
+            return None
+        
+        try:
+            # Use the pipeline's export functionality
+            export_files = self.pipeline.export_to_formats(self.standardized_sites, filename_base)
+            
+            print("✓ Standardized data exported:")
+            for file_type, filename in export_files.items():
+                print(f"  {file_type}: {filename}")
+            
+            # Generate validation report
+            validation_results = self.pipeline.validate_transformed_data(self.standardized_sites)
+            print(f"\n✓ Data validation completed:")
+            print(f"  Validation passed: {validation_results['validation_passed']}")
+            print(f"  Total sites: {validation_results['total_sites']}")
+            print(f"  Average quality score: {validation_results['quality_checks']['average_quality_score']:.2f}")
+            
+            return export_files
+            
+        except Exception as e:
+            print(f"Error exporting standardized data: {e}")
+            return None
+    
+    def get_transformation_stats(self):
+        """Get statistics from the transformation pipeline"""
+        if not self.enable_transformation:
+            return None
+        
+        return self.pipeline.transformation_stats
 
 def main():
-    scraper = HeritagesSiteScraper()
+    # Initialize scraper with transformation enabled
+    scraper = HeritagesSiteScraper(enable_transformation=True)
     
-    print("=== UNESCO World Heritage Sites Travel Planner ===\n")
+    print("=== UNESCO World Heritage Sites Travel Planner with Data Pipeline ===\n")
+    
+    # Ask user if they want to export standardized data after scraping
+    export_data = input("Export standardized data after scraping? (y/n): ").lower().strip() == 'y'
     
     # Get user input
     keyword = input("Enter a keyword to search for (e.g., 'temple', 'castle', 'natural'): ").strip()
@@ -371,20 +490,46 @@ def main():
         print("Country name cannot be empty!")
         return
     
-    # Search for heritage sites
+    # Search for heritage sites (this will trigger scraping and transformation)
     sites = scraper.search_heritage_sites(keyword, country)
     
     if not sites:
         print(f"No heritage sites found matching '{keyword}' in {country}")
+        
+        # Show transformation stats if available
+        if scraper.enable_transformation:
+            stats = scraper.get_transformation_stats()
+            if stats:
+                print(f"\nTransformation Statistics:")
+                print(f"  Sites processed: {stats['processed']}")
+                print(f"  Sites transformed: {stats['transformed']}")
+                print(f"  Transformation errors: {stats['errors']}")
+                if stats['quality_scores']:
+                    avg_quality = sum(stats['quality_scores']) / len(stats['quality_scores'])
+                    print(f"  Average quality score: {avg_quality:.2f}")
+        
+        # Export data if requested
+        if export_data:
+            scraper.export_standardized_data()
+        
         return
     
     # Display found sites
     print(f"\nFound {len(sites)} heritage site(s) matching your criteria:\n")
     for i, site in enumerate(sites, 1):
-        print(f"{i}. {site['name']}")
-        print(f"   Location: {site['location']}")
-        print(f"   Year: {site['year']}")
-        print(f"   Criteria: {site['criteria']}")
+        if hasattr(site, 'name'):  # Standardized site
+            print(f"{i}. {site.name}")
+            print(f"   Location: {site.location}")
+            print(f"   Year: {site.inscription_year if site.inscription_year > 0 else 'Unknown'}")
+            print(f"   Criteria: {site.criteria_type.value}")
+            print(f"   Quality Score: {site.data_quality_score:.2f}")
+            if site.tags:
+                print(f"   Tags: {', '.join(site.tags[:5])}")  # Show first 5 tags
+        else:  # Raw site
+            print(f"{i}. {site['name']}")
+            print(f"   Location: {site['location']}")
+            print(f"   Year: {site['year']}")
+            print(f"   Criteria: {site['criteria']}")
         print()
     
     # User selects a site
@@ -411,17 +556,24 @@ def main():
             print("Please enter a valid number")
     
     # Generate itinerary
-    print(f"\nGenerating {days}-day itinerary for {selected_site['name']}...")
+    site_name = selected_site.name if hasattr(selected_site, 'name') else selected_site['name']
+    print(f"\nGenerating {days}-day itinerary for {site_name}...")
     itinerary = scraper.generate_itinerary(selected_site, days)
     
     # Save to JSON
     filename = scraper.save_itinerary_to_json(itinerary)
     
     if filename:
-        print(f"\nItinerary successfully generated and saved!")
+        print(f"\n✓ Itinerary successfully generated and saved!")
         print(f"Destination: {itinerary['destination']}")
         print(f"Duration: {days} days")
         print(f"File: {filename}")
+        
+        # Show additional info for standardized sites
+        if 'continent' in itinerary:
+            print(f"Region: {itinerary['region']}, {itinerary['continent']}")
+            print(f"Inscription Year: {itinerary['inscription_year']}")
+            print(f"Data Quality: {itinerary['data_quality_score']:.2f}/1.0")
     
     # Display a preview of the itinerary
     print(f"\n=== Itinerary Preview ===")
@@ -434,6 +586,25 @@ def main():
         print(f"\n... and {len(itinerary['itinerary']) - 2} more days")
     
     print(f"\nFull itinerary saved to {filename}")
+    
+    # Show transformation stats
+    if scraper.enable_transformation:
+        stats = scraper.get_transformation_stats()
+        if stats:
+            print(f"\n=== Data Transformation Statistics ===")
+            print(f"Sites processed: {stats['processed']}")
+            print(f"Sites successfully transformed: {stats['transformed']}")
+            print(f"Transformation errors: {stats['errors']}")
+            if stats['quality_scores']:
+                avg_quality = sum(stats['quality_scores']) / len(stats['quality_scores'])
+                print(f"Average data quality score: {avg_quality:.2f}/1.0")
+            success_rate = (stats['transformed'] / stats['processed']) * 100 if stats['processed'] > 0 else 0
+            print(f"Transformation success rate: {success_rate:.1f}%")
+    
+    # Export standardized data if requested
+    if export_data:
+        print(f"\n=== Exporting Standardized Data ===")
+        scraper.export_standardized_data()
 
 if __name__ == "__main__":
     main()

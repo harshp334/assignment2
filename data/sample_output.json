@@ -1,7 +1,7 @@
 {
-    "destination": "Archaeological Site of Cyrene",
-    "country": "Libya",
-    "location": "Libya",
+    "destination": "Chengjiang Fossil Site",
+    "country": "China",
+    "location": "China",
     "duration_days": 3,
     "itinerary": [
         {
@@ -9,7 +9,7 @@
             "title": "Arrival and First Exploration",
             "activities": [
                 "Arrive and check into accommodation",
-                "Initial visit to Archaeological Site of Cyrene",
+                "Initial visit to Chengjiang Fossil Site",
                 "Orientation and site overview",
                 "Local cuisine lunch",
                 "Evening rest and preparation"
@@ -19,7 +19,7 @@
             "day": 2,
             "title": "Full Exploration Day 1",
             "activities": [
-                "In-depth exploration of Archaeological Site of Cyrene",
+                "In-depth exploration of Chengjiang Fossil Site",
                 "Guided tour of historical sections",
                 "Photography session",
                 "Local cultural activities",
@@ -30,7 +30,7 @@
             "day": 3,
             "title": "Final Exploration and Departure",
             "activities": [
-                "Final visit to Archaeological Site of Cyrene",
+                "Final visit to Chengjiang Fossil Site",
                 "Purchase souvenirs and local crafts",
                 "Last-minute photography",
                 "Check out and prepare for departure",
