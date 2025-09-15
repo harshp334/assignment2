@@ -1,3 +1,8 @@
+import re
+import json
+import time
+from urllib.parse import urlparse
+
 def validate_keyword(keyword):
     """Validate search keyword input"""
     if not keyword or not isinstance(keyword, str):
@@ -309,8 +314,9 @@ def search_heritage_sites_validated(self, keyword, country):
     # ... existing search logic with validation calls ...
     
     # Validate results before returning
+def validate_sites(matching_sites):
     validated_sites = []
-    for site in matching_sites:
+    for site in matching_sites:   # now this loops over the actual sites
         try:
             validated_site = validate_heritage_site(site)
             validated_sites.append(validated_site)

@@ -474,7 +474,7 @@ def main():
     # Initialize scraper with transformation enabled
     scraper = HeritagesSiteScraper(enable_transformation=True)
     
-    print("=== UNESCO World Heritage Sites Travel Planner with Data Pipeline ===\n")
+    print("=== UNESCO World Heritage Sites Travel Planner ===\n")
     
     # Ask user if they want to export standardized data after scraping
     export_data = input("Export standardized data after scraping? (y/n): ").lower().strip() == 'y'
